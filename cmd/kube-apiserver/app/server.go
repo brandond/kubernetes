@@ -82,6 +82,10 @@ import (
 	"k8s.io/kubernetes/pkg/serviceaccount"
 )
 
+var (
+	DefaultProxyDialerFn utilnet.DialFunc
+)
+
 // NewAPIServerCommand creates a *cobra.Command object with default parameters
 func NewAPIServerCommand(stopCh <-chan struct{}) *cobra.Command {
 	s := options.NewServerRunOptions()
@@ -169,7 +173,12 @@ func Run(completeOptions completedServerRunOptions, stopCh <-chan struct{}) erro
 
 // CreateServerChain creates the apiservers connected via delegation.
 func CreateServerChain(completedOptions completedServerRunOptions, stopCh <-chan struct{}) (*aggregatorapiserver.APIAggregator, error) {
+	if DefaultProxyDialerFn != nil {
+		completedOptions.KubeletConfig.Dial = DefaultProxyDialerFn
+	}
+
 	kubeAPIServerConfig, serviceResolver, pluginInitializer, err := CreateKubeAPIServerConfig(completedOptions)
+
 	if err != nil {
 		return nil, err
 	}
