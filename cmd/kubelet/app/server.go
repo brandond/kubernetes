@@ -606,25 +606,29 @@ func run(ctx context.Context, s *options.KubeletServer, kubeDeps *kubelet.Depend
 	}
 
 	var cgroupRoots []string
-	nodeAllocatableRoot := cm.NodeAllocatableRoot(s.CgroupRoot, s.CgroupsPerQOS, s.CgroupDriver)
-	cgroupRoots = append(cgroupRoots, nodeAllocatableRoot)
-	kubeletCgroup, err := cm.GetKubeletContainer(s.KubeletCgroups)
-	if err != nil {
-		klog.InfoS("Failed to get the kubelet's cgroup. Kubelet system container metrics may be missing.", "err", err)
-	} else if kubeletCgroup != "" {
-		cgroupRoots = append(cgroupRoots, kubeletCgroup)
-	}
+	if s.CgroupDriver == "none" {
+		cgroupRoots = []string{"/"}
+	} else {
+		nodeAllocatableRoot := cm.NodeAllocatableRoot(s.CgroupRoot, s.CgroupsPerQOS, s.CgroupDriver)
+		cgroupRoots = append(cgroupRoots, nodeAllocatableRoot)
+		kubeletCgroup, err := cm.GetKubeletContainer(s.KubeletCgroups)
+		if err != nil {
+			klog.InfoS("Failed to get the kubelet's cgroup. Kubelet system container metrics may be missing.", "err", err)
+		} else if kubeletCgroup != "" {
+			cgroupRoots = append(cgroupRoots, kubeletCgroup)
+		}
 
-	if err != nil {
-		klog.InfoS("Failed to get the container runtime's cgroup. Runtime system container metrics may be missing.", "err", err)
-	} else if s.RuntimeCgroups != "" {
-		// RuntimeCgroups is optional, so ignore if it isn't specified
-		cgroupRoots = append(cgroupRoots, s.RuntimeCgroups)
-	}
+		if err != nil {
+			klog.InfoS("Failed to get the container runtime's cgroup. Runtime system container metrics may be missing.", "err", err)
+		} else if s.RuntimeCgroups != "" {
+			// RuntimeCgroups is optional, so ignore if it isn't specified
+			cgroupRoots = append(cgroupRoots, s.RuntimeCgroups)
+		}
 
-	if s.SystemCgroups != "" {
-		// SystemCgroups is optional, so ignore if it isn't specified
-		cgroupRoots = append(cgroupRoots, s.SystemCgroups)
+		if s.SystemCgroups != "" {
+			// SystemCgroups is optional, so ignore if it isn't specified
+			cgroupRoots = append(cgroupRoots, s.SystemCgroups)
+		}
 	}
 
 	if kubeDeps.CAdvisorInterface == nil {
