@@ -657,6 +657,15 @@ const (
 	//
 	// Enable rootless mode.
 	Rootless featuregate.Feature = "Rootless"
+
+	// owner: @AkihiroSuda
+	// alpha: v1.XX
+	//
+	// Enable support for "none" cgroup driver.
+	//
+	// The "none" driver is expected to be used for running "rootless" mode on a host
+	// that does not support cgroup v2.
+	SupportNoneCgroupDriver featuregate.Feature = "SupportNoneCgroupDriver"
 )
 
 func init() {
@@ -756,6 +765,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	DisableAcceleratorUsageMetrics:                 {Default: true, PreRelease: featuregate.Beta},
 	HPAContainerMetrics:                            {Default: false, PreRelease: featuregate.Alpha},
 	Rootless:                                       {Default: false, PreRelease: featuregate.Alpha},
+	SupportNoneCgroupDriver:                        {Default: false, PreRelease: featuregate.Alpha},
 
 	// inherited features from generic apiserver, relisted here to get a conflict if it is changed
 	// unintentionally on either side:
