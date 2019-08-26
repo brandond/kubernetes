@@ -21,6 +21,7 @@ package main
 import (
 	"os"
 
+	"k8s.io/apiserver/pkg/server"
 	"k8s.io/component-base/cli"
 	_ "k8s.io/component-base/logs/json/register"          // for JSON log format registration
 	_ "k8s.io/component-base/metrics/prometheus/clientgo" // load all the prometheus client-go plugins
@@ -29,7 +30,7 @@ import (
 )
 
 func main() {
-	command := app.NewAPIServerCommand()
+	command := app.NewAPIServerCommand(server.SetupSignalHandler())
 	code := cli.Run(command)
 	os.Exit(code)
 }
