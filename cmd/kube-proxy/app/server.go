@@ -100,7 +100,7 @@ const (
 
 // proxyRun defines the interface to run a specified ProxyServer
 type proxyRun interface {
-	Run() error
+	Run(<-chan struct{}) error
 	CleanupAndExit() error
 }
 
@@ -302,7 +302,7 @@ func (o *Options) Validate() error {
 }
 
 // Run runs the specified ProxyServer.
-func (o *Options) Run() error {
+func (o *Options) Run(stopCh <-chan struct{}) error {
 	defer close(o.errCh)
 	if len(o.WriteConfigTo) > 0 {
 		return o.writeConfigFile()
@@ -318,19 +318,19 @@ func (o *Options) Run() error {
 	}
 
 	o.proxyServer = proxyServer
-	return o.runLoop()
+	return o.runLoop(stopCh)
 }
 
 // runLoop will watch on the update change of the proxy server's configuration file.
 // Return an error when updated
-func (o *Options) runLoop() error {
+func (o *Options) runLoop(stopCh <-chan struct{}) error {
 	if o.watcher != nil {
 		o.watcher.Run()
 	}
 
 	// run the proxy in goroutine
 	go func() {
-		err := o.proxyServer.Run()
+		err := o.proxyServer.Run(stopCh)
 		o.errCh <- err
 	}()
 
@@ -463,7 +463,7 @@ func (o *Options) ApplyDefaults(in *kubeproxyconfig.KubeProxyConfiguration) (*ku
 }
 
 // NewProxyCommand creates a *cobra.Command object with default parameters
-func NewProxyCommand() *cobra.Command {
+func NewProxyCommand(stopCh <-chan struct{}) *cobra.Command {
 	opts := NewOptions()
 
 	cmd := &cobra.Command{
@@ -491,7 +491,7 @@ with the apiserver API to configure the proxy.`,
 				return fmt.Errorf("failed validate: %w", err)
 			}
 
-			if err := opts.Run(); err != nil {
+			if err := opts.Run(stopCh); err != nil {
 				klog.ErrorS(err, "Error running ProxyServer")
 				return err
 			}
@@ -511,9 +511,7 @@ with the apiserver API to configure the proxy.`,
 	var err error
 	opts.config, err = opts.ApplyDefaults(opts.config)
 	if err != nil {
-		klog.ErrorS(err, "Unable to create flag defaults")
-		// ACTION REQUIRED: Exit code changed from 255 to 1
-		os.Exit(1)
+		klog.Fatalf("Unable to create flag defaults: %v", err)
 	}
 
 	fs := cmd.Flags()
@@ -588,7 +586,7 @@ func createClients(config componentbaseconfig.ClientConnectionConfiguration, mas
 	return client, eventClient.CoreV1(), nil
 }
 
-func serveHealthz(hz healthcheck.ProxierHealthUpdater, errCh chan error) {
+func serveHealthz(hz healthcheck.ProxierHealthUpdater, errCh chan error, stopCh <-chan struct{}) {
 	if hz == nil {
 		return
 	}
@@ -607,10 +605,10 @@ func serveHealthz(hz healthcheck.ProxierHealthUpdater, errCh chan error) {
 			klog.ErrorS(nil, "Healthz server returned without error")
 		}
 	}
-	go wait.Until(fn, 5*time.Second, wait.NeverStop)
+	go wait.Until(fn, 5*time.Second, stopCh)
 }
 
-func serveMetrics(bindAddress, proxyMode string, enableProfiling bool, errCh chan error) {
+func serveMetrics(bindAddress, proxyMode string, enableProfiling bool, errCh chan error, stopCh <-chan struct{}) {
 	if len(bindAddress) == 0 {
 		return
 	}
@@ -646,12 +644,12 @@ func serveMetrics(bindAddress, proxyMode string, enableProfiling bool, errCh cha
 			}
 		}
 	}
-	go wait.Until(fn, 5*time.Second, wait.NeverStop)
+	go wait.Until(fn, 5*time.Second, stopCh)
 }
 
 // Run runs the specified ProxyServer.  This should never exit (unless CleanupAndExit is set).
 // TODO: At the moment, Run() cannot return a nil error, otherwise it's caller will never exit. Update callers of Run to handle nil errors.
-func (s *ProxyServer) Run() error {
+func (s *ProxyServer) Run(stopCh <-chan struct{}) error {
 	// To help debugging, immediately log version
 	klog.InfoS("Version info", "version", version.Get())
 
@@ -665,7 +663,6 @@ func (s *ProxyServer) Run() error {
 	}
 
 	if s.Broadcaster != nil && s.EventClient != nil {
-		stopCh := make(chan struct{})
 		s.Broadcaster.StartRecordingToSink(stopCh)
 	}
 
@@ -677,10 +674,10 @@ func (s *ProxyServer) Run() error {
 	}
 
 	// Start up a healthz server if requested
-	serveHealthz(s.HealthzServer, errCh)
+	serveHealthz(s.HealthzServer, errCh, stopCh)
 
 	// Start up a metrics server if requested
-	serveMetrics(s.MetricsBindAddress, s.ProxyMode, s.EnableProfiling, errCh)
+	serveMetrics(s.MetricsBindAddress, s.ProxyMode, s.EnableProfiling, errCh, stopCh)
 
 	// Tune conntrack, if requested
 	// Conntracker is always nil for windows
@@ -748,21 +745,21 @@ func (s *ProxyServer) Run() error {
 	// are registered yet.
 	serviceConfig := config.NewServiceConfig(informerFactory.Core().V1().Services(), s.ConfigSyncPeriod)
 	serviceConfig.RegisterEventHandler(s.Proxier)
-	go serviceConfig.Run(wait.NeverStop)
+	go serviceConfig.Run(stopCh)
 
 	if endpointsHandler, ok := s.Proxier.(config.EndpointsHandler); ok && !s.UseEndpointSlices {
 		endpointsConfig := config.NewEndpointsConfig(informerFactory.Core().V1().Endpoints(), s.ConfigSyncPeriod)
 		endpointsConfig.RegisterEventHandler(endpointsHandler)
-		go endpointsConfig.Run(wait.NeverStop)
+		go endpointsConfig.Run(stopCh)
 	} else {
 		endpointSliceConfig := config.NewEndpointSliceConfig(informerFactory.Discovery().V1().EndpointSlices(), s.ConfigSyncPeriod)
 		endpointSliceConfig.RegisterEventHandler(s.Proxier)
-		go endpointSliceConfig.Run(wait.NeverStop)
+		go endpointSliceConfig.Run(stopCh)
 	}
 
 	// This has to start after the calls to NewServiceConfig and NewEndpointsConfig because those
 	// functions must configure their shared informer event handlers first.
-	informerFactory.Start(wait.NeverStop)
+	informerFactory.Start(stopCh)
 
 	if utilfeature.DefaultFeatureGate.Enabled(features.TopologyAwareHints) {
 		// Make an informer that selects for our nodename.
@@ -772,11 +769,11 @@ func (s *ProxyServer) Run() error {
 			}))
 		nodeConfig := config.NewNodeConfig(currentNodeInformerFactory.Core().V1().Nodes(), s.ConfigSyncPeriod)
 		nodeConfig.RegisterEventHandler(s.Proxier)
-		go nodeConfig.Run(wait.NeverStop)
+		go nodeConfig.Run(stopCh)
 
 		// This has to start after the calls to NewNodeConfig because that must
 		// configure the shared informer event handler first.
-		currentNodeInformerFactory.Start(wait.NeverStop)
+		currentNodeInformerFactory.Start(stopCh)
 	}
 
 	// Birth Cry after the birth is successful

@@ -26,6 +26,7 @@ import (
 	mangen "github.com/cpuguy83/go-md2man/v2/md2man"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"k8s.io/apiserver/pkg/server"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	kubectlcmd "k8s.io/kubectl/pkg/cmd"
 	"k8s.io/kubernetes/cmd/genutils"
@@ -62,35 +63,35 @@ func main() {
 	switch module {
 	case "kube-apiserver":
 		// generate manpage for kube-apiserver
-		apiserver := apiservapp.NewAPIServerCommand()
+		apiserver := apiservapp.NewAPIServerCommand(server.SetupSignalHandler())
 		genMarkdown(apiserver, "", outDir)
 		for _, c := range apiserver.Commands() {
 			genMarkdown(c, "kube-apiserver", outDir)
 		}
 	case "kube-controller-manager":
 		// generate manpage for kube-controller-manager
-		controllermanager := cmapp.NewControllerManagerCommand()
+		controllermanager := cmapp.NewControllerManagerCommand(server.SetupSignalHandler())
 		genMarkdown(controllermanager, "", outDir)
 		for _, c := range controllermanager.Commands() {
 			genMarkdown(c, "kube-controller-manager", outDir)
 		}
 	case "kube-proxy":
 		// generate manpage for kube-proxy
-		proxy := proxyapp.NewProxyCommand()
+		proxy := proxyapp.NewProxyCommand(server.SetupSignalHandler())
 		genMarkdown(proxy, "", outDir)
 		for _, c := range proxy.Commands() {
 			genMarkdown(c, "kube-proxy", outDir)
 		}
 	case "kube-scheduler":
 		// generate manpage for kube-scheduler
-		scheduler := schapp.NewSchedulerCommand()
+		scheduler := schapp.NewSchedulerCommand(server.SetupSignalContext())
 		genMarkdown(scheduler, "", outDir)
 		for _, c := range scheduler.Commands() {
 			genMarkdown(c, "kube-scheduler", outDir)
 		}
 	case "kubelet":
 		// generate manpage for kubelet
-		kubelet := kubeletapp.NewKubeletCommand()
+		kubelet := kubeletapp.NewKubeletCommand(server.SetupSignalContext())
 		genMarkdown(kubelet, "", outDir)
 		for _, c := range kubelet.Commands() {
 			genMarkdown(c, "kubelet", outDir)

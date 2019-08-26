@@ -20,7 +20,6 @@ package app
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -33,6 +32,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-systemd/v22/daemon"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"k8s.io/klog/v2"
@@ -48,7 +48,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
-	genericapiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/apiserver/pkg/server/healthz"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientset "k8s.io/client-go/kubernetes"
@@ -112,15 +111,14 @@ const (
 )
 
 // NewKubeletCommand creates a *cobra.Command object with default parameters
-func NewKubeletCommand() *cobra.Command {
+func NewKubeletCommand(ctx context.Context) *cobra.Command {
 	cleanFlagSet := pflag.NewFlagSet(componentKubelet, pflag.ContinueOnError)
 	cleanFlagSet.SetNormalizeFunc(cliflag.WordSepNormalizeFunc)
 	kubeletFlags := options.NewKubeletFlags()
 	kubeletConfig, err := options.NewKubeletConfiguration()
 	// programmer error
 	if err != nil {
-		klog.ErrorS(err, "Failed to create a new kubelet configuration")
-		os.Exit(1)
+		klog.Fatalf("Failed to create a new kubelet configuration: %v", err)
 	}
 
 	cmd := &cobra.Command{
@@ -152,31 +150,26 @@ HTTP server: The kubelet can also listen for HTTP and respond to a simple API
 		// DisableFlagParsing=true provides the full set of flags passed to the kubelet in the
 		// `args` arg to Run, without Cobra's interference.
 		DisableFlagParsing: true,
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			// initial flag parse, since we disable cobra's flag parsing
 			if err := cleanFlagSet.Parse(args); err != nil {
-				klog.ErrorS(err, "Failed to parse kubelet flag")
-				cmd.Usage()
-				os.Exit(1)
+				errors.Wrap(err, "Failed to parse kubelet flag")
 			}
 
 			// check if there are non-flag arguments in the command line
 			cmds := cleanFlagSet.Args()
 			if len(cmds) > 0 {
-				klog.ErrorS(nil, "Unknown command", "command", cmds[0])
-				cmd.Usage()
-				os.Exit(1)
+				return fmt.Errorf("Unknown command command=%v", cmds[0])
 			}
 
 			// short-circuit on help
 			help, err := cleanFlagSet.GetBool("help")
 			if err != nil {
-				klog.InfoS(`"help" flag is non-bool, programmer error, please correct`)
-				os.Exit(1)
+				return errors.New(`"help" flag is non-bool, programmer error, please correct`)
 			}
 			if help {
 				cmd.Help()
-				return
+				return nil
 			}
 
 			// short-circuit on verflag
@@ -184,14 +177,12 @@ HTTP server: The kubelet can also listen for HTTP and respond to a simple API
 
 			// set feature gates from initial flags-based config
 			if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(kubeletConfig.FeatureGates); err != nil {
-				klog.ErrorS(err, "Failed to set feature gates from initial flags-based config")
-				os.Exit(1)
+				errors.Wrap(err, "Failed to set feature gates from initial flags-based config")
 			}
 
 			// validate the initial KubeletFlags
 			if err := options.ValidateKubeletFlags(kubeletFlags); err != nil {
-				klog.ErrorS(err, "Failed to validate kubelet flags")
-				os.Exit(1)
+				errors.Wrap(err, "Failed to validate kubelet flags")
 			}
 
 			if kubeletFlags.ContainerRuntime == "remote" && cleanFlagSet.Changed("pod-infra-container-image") {
@@ -202,28 +193,24 @@ HTTP server: The kubelet can also listen for HTTP and respond to a simple API
 			if configFile := kubeletFlags.KubeletConfigFile; len(configFile) > 0 {
 				kubeletConfig, err = loadConfigFile(configFile)
 				if err != nil {
-					klog.ErrorS(err, "Failed to load kubelet config file", "path", configFile)
-					os.Exit(1)
+					errors.Wrapf(err, "Failed to load kubelet config file path=%v", configFile)
 				}
 				// We must enforce flag precedence by re-parsing the command line into the new object.
 				// This is necessary to preserve backwards-compatibility across binary upgrades.
 				// See issue #56171 for more details.
 				if err := kubeletConfigFlagPrecedence(kubeletConfig, args); err != nil {
-					klog.ErrorS(err, "Failed to precedence kubeletConfigFlag")
-					os.Exit(1)
+					errors.Wrap(err, "Failed to precedence kubeletConfigFlag")
 				}
 				// update feature gates based on new config
 				if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(kubeletConfig.FeatureGates); err != nil {
-					klog.ErrorS(err, "Failed to set feature gates from initial flags-based config")
-					os.Exit(1)
+					errors.Wrap(err, "Failed to set feature gates from initial flags-based config")
 				}
 			}
 
 			// We always validate the local configuration (command line + config file).
 			// This is the default "last-known-good" config for dynamic config, and must always remain valid.
 			if err := kubeletconfigvalidation.ValidateKubeletConfiguration(kubeletConfig); err != nil {
-				klog.ErrorS(err, "Failed to validate kubelet configuration", "path", kubeletConfig)
-				os.Exit(1)
+				errors.Wrapf(err, "Failed to validate kubelet configuration path=%v", kubeletConfig)
 			}
 
 			if (kubeletConfig.KubeletCgroups != "" && kubeletConfig.KubeReservedCgroup != "") && (strings.Index(kubeletConfig.KubeletCgroups, kubeletConfig.KubeReservedCgroup) != 0) {
@@ -243,8 +230,7 @@ HTTP server: The kubelet can also listen for HTTP and respond to a simple API
 						return kubeletConfigFlagPrecedence(kc, args)
 					})
 				if err != nil {
-					klog.ErrorS(err, "Failed to bootstrap a configuration controller", "dynamicConfigDir", dynamicConfigDir)
-					os.Exit(1)
+					errors.Wrapf(err, "Failed to bootstrap a configuration controller dynamicConfigDir=%v", dynamicConfigDir)
 				}
 				// If we should just use our existing, local config, the controller will return a nil config
 				if dynamicKubeletConfig != nil {
@@ -252,8 +238,7 @@ HTTP server: The kubelet can also listen for HTTP and respond to a simple API
 					// Note: flag precedence was already enforced in the controller, prior to validation,
 					// by our above transform function. Now we simply update feature gates from the new config.
 					if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(kubeletConfig.FeatureGates); err != nil {
-						klog.ErrorS(err, "Failed to set feature gates from initial flags-based config")
-						os.Exit(1)
+						return errors.Wrap(err, "Failed to set feature gates from initial flags-based config")
 					}
 				}
 			}
@@ -262,8 +247,7 @@ HTTP server: The kubelet can also listen for HTTP and respond to a simple API
 			logs.InitLogs()
 			logOption := &logs.Options{Config: kubeletConfig.Logging}
 			if err := logOption.ValidateAndApply(); err != nil {
-				klog.ErrorS(err, "Failed to initialize logging")
-				os.Exit(1)
+				return errors.Wrap(err, "Failed to initialize logging")
 			}
 			cliflag.PrintFlags(cleanFlagSet)
 
@@ -276,8 +260,7 @@ HTTP server: The kubelet can also listen for HTTP and respond to a simple API
 			// use kubeletServer to construct the default KubeletDeps
 			kubeletDeps, err := UnsecuredDependencies(kubeletServer, utilfeature.DefaultFeatureGate)
 			if err != nil {
-				klog.ErrorS(err, "Failed to construct kubelet dependencies")
-				os.Exit(1)
+				return errors.Wrap(err, "Failed to construct kubelet dependencies")
 			}
 
 			// add the kubelet config controller to kubeletDeps
@@ -286,9 +269,6 @@ HTTP server: The kubelet can also listen for HTTP and respond to a simple API
 			if err := checkPermissions(); err != nil {
 				klog.ErrorS(err, "kubelet running with insufficient permissions")
 			}
-			// set up signal context here in order to be reused by kubelet and docker shim
-			ctx := genericapiserver.SetupSignalContext()
-
 			// make the kubelet's config safe for logging
 			config := kubeletServer.KubeletConfiguration.DeepCopy()
 			for k := range config.StaticPodURLHeader {
@@ -299,9 +279,9 @@ HTTP server: The kubelet can also listen for HTTP and respond to a simple API
 
 			// run the kubelet
 			if err := Run(ctx, kubeletServer, kubeletDeps, utilfeature.DefaultFeatureGate); err != nil {
-				klog.ErrorS(err, "Failed to run kubelet")
-				os.Exit(1)
+				errors.Wrap(err, "Failed to run kubelet")
 			}
+			return nil
 		},
 	}
 

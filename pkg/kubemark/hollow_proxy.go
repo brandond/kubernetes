@@ -22,6 +22,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/events"
@@ -133,7 +134,7 @@ func NewHollowProxyOrDie(
 }
 
 func (hp *HollowProxy) Run() error {
-	if err := hp.ProxyServer.Run(); err != nil {
+	if err := hp.ProxyServer.Run(wait.NeverStop); err != nil {
 		return fmt.Errorf("Error while running proxy: %w", err)
 	}
 	return nil

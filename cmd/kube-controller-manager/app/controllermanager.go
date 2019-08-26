@@ -104,7 +104,7 @@ func checkNonZeroInsecurePort(fs *pflag.FlagSet) error {
 }
 
 // NewControllerManagerCommand creates a *cobra.Command object with default parameters
-func NewControllerManagerCommand() *cobra.Command {
+func NewControllerManagerCommand(stopCh <-chan struct{}) *cobra.Command {
 	s, err := options.NewKubeControllerManagerOptions()
 	if err != nil {
 		klog.Fatalf("unable to initialize command options: %v", err)
@@ -127,33 +127,30 @@ controller, and serviceaccounts controller.`,
 			restclient.SetDefaultWarningHandler(restclient.NoWarnings{})
 			return nil
 		},
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			verflag.PrintAndExitIfRequested()
 
 			// Activate logging as soon as possible, after that
 			// show flags with the final logging configuration.
 			if err := s.Logs.ValidateAndApply(); err != nil {
-				fmt.Fprintf(os.Stderr, "%v\n", err)
-				os.Exit(1)
+				return err
 			}
 			cliflag.PrintFlags(cmd.Flags())
 
 			err := checkNonZeroInsecurePort(cmd.Flags())
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "%v\n", err)
-				os.Exit(1)
+				return err
 			}
 
 			c, err := s.Config(KnownControllers(), ControllersDisabledByDefault.List())
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "%v\n", err)
-				os.Exit(1)
+				return err
 			}
 
-			if err := Run(c.Complete(), wait.NeverStop); err != nil {
-				fmt.Fprintf(os.Stderr, "%v\n", err)
-				os.Exit(1)
+			if err := Run(c.Complete(), stopCh); err != nil {
+				return err
 			}
+			return nil
 		},
 		Args: func(cmd *cobra.Command, args []string) error {
 			for _, arg := range args {
