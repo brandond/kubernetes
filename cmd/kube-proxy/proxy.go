@@ -19,6 +19,7 @@ package main
 import (
 	"os"
 
+	"k8s.io/apiserver/pkg/server"
 	"k8s.io/component-base/cli"
 	_ "k8s.io/component-base/metrics/prometheus/restclient" // for client metric registration
 	_ "k8s.io/component-base/metrics/prometheus/version"    // for version metric registration
@@ -26,7 +27,7 @@ import (
 )
 
 func main() {
-	command := app.NewProxyCommand()
+	command := app.NewProxyCommand(server.SetupSignalHandler())
 	code := cli.Run(command)
 	os.Exit(code)
 }

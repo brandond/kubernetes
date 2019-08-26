@@ -21,7 +21,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	goruntime "runtime"
 
 	"github.com/spf13/cobra"
@@ -31,7 +30,6 @@ import (
 	"k8s.io/apiserver/pkg/authorization/authorizer"
 	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
-	"k8s.io/apiserver/pkg/server"
 	genericfilters "k8s.io/apiserver/pkg/server/filters"
 	"k8s.io/apiserver/pkg/server/healthz"
 	"k8s.io/apiserver/pkg/server/mux"
@@ -63,7 +61,7 @@ import (
 type Option func(runtime.Registry) error
 
 // NewSchedulerCommand creates a *cobra.Command object with default parameters and registryOptions
-func NewSchedulerCommand(registryOptions ...Option) *cobra.Command {
+func NewSchedulerCommand(ctx context.Context, registryOptions ...Option) *cobra.Command {
 	opts := options.NewOptions()
 
 	cmd := &cobra.Command{
@@ -77,7 +75,7 @@ kube-scheduler is the reference implementation.
 See [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/)
 for more information about scheduling and the kube-scheduler component.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCommand(cmd, opts, registryOptions...)
+			return runCommand(ctx, cmd, opts, registryOptions...)
 		},
 		Args: func(cmd *cobra.Command, args []string) error {
 			for _, arg := range args {
@@ -106,24 +104,15 @@ for more information about scheduling and the kube-scheduler component.`,
 }
 
 // runCommand runs the scheduler.
-func runCommand(cmd *cobra.Command, opts *options.Options, registryOptions ...Option) error {
+func runCommand(ctx context.Context, cmd *cobra.Command, opts *options.Options, registryOptions ...Option) error {
 	verflag.PrintAndExitIfRequested()
 
 	// Activate logging as soon as possible, after that
 	// show flags with the final logging configuration.
 	if err := opts.Logs.ValidateAndApply(); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
+		return err
 	}
 	cliflag.PrintFlags(cmd.Flags())
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		stopCh := server.SetupSignalHandler()
-		<-stopCh
-		cancel()
-	}()
 
 	cc, sched, err := Setup(ctx, opts, registryOptions...)
 	if err != nil {
@@ -201,12 +190,10 @@ func Run(ctx context.Context, cc *schedulerserverconfig.CompletedConfig, sched *
 				select {
 				case <-ctx.Done():
 					// We were asked to terminate. Exit 0.
-					klog.InfoS("Requested to terminate, exiting")
-					os.Exit(0)
+					klog.Fatalf("Requested to terminate, exiting")
 				default:
 					// We lost the lock.
-					klog.ErrorS(nil, "Leaderelection lost")
-					os.Exit(1)
+					klog.Fatal("Leaderelection lost")
 				}
 			},
 		}

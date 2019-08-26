@@ -35,6 +35,7 @@ import (
 	utilpointer "k8s.io/utils/pointer"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	componentbaseconfig "k8s.io/component-base/config"
 	kubeproxyconfig "k8s.io/kubernetes/pkg/proxy/apis/config"
 )
@@ -500,7 +501,7 @@ udpIdleTimeout: 250ms`)
 
 		errCh := make(chan error, 1)
 		go func() {
-			errCh <- opt.runLoop()
+			errCh <- opt.runLoop(wait.NeverStop)
 		}()
 
 		if tc.append {
@@ -524,7 +525,7 @@ udpIdleTimeout: 250ms`)
 type fakeProxyServerLongRun struct{}
 
 // Run runs the specified ProxyServer.
-func (s *fakeProxyServerLongRun) Run() error {
+func (s *fakeProxyServerLongRun) Run(<-chan struct{}) error {
 	for {
 		time.Sleep(2 * time.Second)
 	}
@@ -538,7 +539,7 @@ func (s *fakeProxyServerLongRun) CleanupAndExit() error {
 type fakeProxyServerError struct{}
 
 // Run runs the specified ProxyServer.
-func (s *fakeProxyServerError) Run() error {
+func (s *fakeProxyServerError) Run(<-chan struct{}) error {
 	for {
 		time.Sleep(2 * time.Second)
 		return fmt.Errorf("mocking error from ProxyServer.Run()")
