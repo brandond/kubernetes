@@ -232,6 +232,7 @@ var (
 		"ReservedMemory[*].Limits[*].s",
 		"ReservedMemory[*].NumaNode",
 		"ReservedSystemCPUs",
+		"Rootless",
 		"RuntimeRequestTimeout.Duration",
 		"RunOnce",
 		"SerializeImagePulls",
