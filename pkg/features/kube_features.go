@@ -651,6 +651,12 @@ const (
 	// Add support for the HPA to scale based on metrics from individual containers
 	// in target pods
 	HPAContainerMetrics featuregate.Feature = "HPAContainerMetrics"
+
+	// owner: @AkihiroSuda
+	// alpha: v1.XX
+	//
+	// Enable rootless mode.
+	Rootless featuregate.Feature = "Rootless"
 )
 
 func init() {
@@ -749,6 +755,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	WinDSR:                                         {Default: false, PreRelease: featuregate.Alpha},
 	DisableAcceleratorUsageMetrics:                 {Default: true, PreRelease: featuregate.Beta},
 	HPAContainerMetrics:                            {Default: false, PreRelease: featuregate.Alpha},
+	Rootless:                                       {Default: false, PreRelease: featuregate.Alpha},
 
 	// inherited features from generic apiserver, relisted here to get a conflict if it is changed
 	// unintentionally on either side:
