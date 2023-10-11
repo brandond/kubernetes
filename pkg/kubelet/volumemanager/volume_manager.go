@@ -519,6 +519,7 @@ func (vm *volumeManager) getUnmountedVolumes(podName types.UniquePodName, expect
 	for _, mountedVolume := range vm.actualStateOfWorld.GetMountedVolumesForPod(podName) {
 		mountedVolumes.Insert(mountedVolume.OuterVolumeSpecName)
 	}
+	klog.V(4).InfoS("Getting umounted volumes for pod", "pod", podName, "mountedVolumes", mountedVolumes, "expectedVolumes", expectedVolumes)
 	return filterUnmountedVolumes(mountedVolumes, expectedVolumes)
 }
 
