@@ -33,6 +33,7 @@ import (
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 	"k8s.io/kubernetes/pkg/kubelet/util/format"
 	"k8s.io/kubernetes/pkg/util/config"
+	"k8s.io/kubernetes/pkg/volume/util"
 )
 
 // PodConfigNotificationMode describes how changes are sent to the update channel.
@@ -395,7 +396,8 @@ func isAnnotationMapEqual(existingMap, candidateMap map[string]string) bool {
 
 // recordFirstSeenTime records the first seen time of this pod.
 func recordFirstSeenTime(pod *v1.Pod) {
-	klog.V(4).InfoS("Receiving a new pod", "pod", klog.KObj(pod))
+	uniquePodName := util.GetUniquePodName(pod)
+	klog.V(4).InfoS("Receiving a new pod", "pod", klog.KObj(pod), "podUID", uniquePodName)
 	pod.Annotations[kubetypes.ConfigFirstSeenAnnotationKey] = kubetypes.NewTimestamp().GetString()
 }
 

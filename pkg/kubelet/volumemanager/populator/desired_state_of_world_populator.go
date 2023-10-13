@@ -291,6 +291,7 @@ func (dswp *desiredStateOfWorldPopulator) processPodVolumes(
 	}
 
 	uniquePodName := util.GetUniquePodName(pod)
+	klog.V(4).InfoS("Processing volumes for pod", "pod", klog.KObj(pod), "podUID", uniquePodName)
 	if dswp.podPreviouslyProcessed(uniquePodName) {
 		return
 	}
@@ -319,11 +320,11 @@ func (dswp *desiredStateOfWorldPopulator) processPodVolumes(
 		uniqueVolumeName, err := dswp.desiredStateOfWorld.AddPodToVolume(
 			uniquePodName, pod, volumeSpec, podVolume.Name, volumeGidValue, seLinuxContainerContexts[podVolume.Name])
 		if err != nil {
-			klog.ErrorS(err, "Failed to add volume to desiredStateOfWorld", "pod", klog.KObj(pod), "volumeName", podVolume.Name, "volumeSpecName", volumeSpec.Name())
+			klog.ErrorS(err, "Failed to add volume to desiredStateOfWorld", "pod", klog.KObj(pod), "podUID", uniquePodName, "volumeName", podVolume.Name, "volumeSpecName", volumeSpec.Name())
 			dswp.desiredStateOfWorld.AddErrorToPod(uniquePodName, err.Error())
 			allVolumesAdded = false
 		} else {
-			klog.V(4).InfoS("Added volume to desired state", "pod", klog.KObj(pod), "volumeName", podVolume.Name, "volumeSpecName", volumeSpec.Name())
+			klog.V(4).InfoS("Added volume to desired state", "pod", klog.KObj(pod), "podUID", uniquePodName, "volumeName", podVolume.Name, "volumeSpecName", volumeSpec.Name())
 		}
 		if !utilfeature.DefaultFeatureGate.Enabled(features.SELinuxMountReadWriteOncePod) {
 			// sync reconstructed volume. This is necessary only when the old-style reconstruction is still used.

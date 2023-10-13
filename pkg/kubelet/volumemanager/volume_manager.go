@@ -405,8 +405,8 @@ func (vm *volumeManager) WaitForAttachAndMount(pod *v1.Pod) error {
 		return nil
 	}
 
-	klog.V(3).InfoS("Waiting for volumes to attach and mount for pod", "pod", klog.KObj(pod))
 	uniquePodName := util.GetUniquePodName(pod)
+	klog.V(3).InfoS("Waiting for volumes to attach and mount for pod", "pod", klog.KObj(pod), "podUID", uniquePodName)
 
 	// Some pods expect to have Setup called over and over again to update.
 	// Remount plugins for which this is true. (Atomically updating volumes,
@@ -492,6 +492,7 @@ func (vm *volumeManager) getUnattachedVolumes(expectedVolumes []string) []string
 // volumes are mounted.
 func (vm *volumeManager) verifyVolumesMountedFunc(podName types.UniquePodName, expectedVolumes []string) wait.ConditionFunc {
 	return func() (done bool, err error) {
+		klog.V(4).InfoS("Verifying mounted volumes for pod", "podUID", podName, "expectedVolumes", expectedVolumes)
 		if errs := vm.desiredStateOfWorld.PopPodErrors(podName); len(errs) > 0 {
 			return true, errors.New(strings.Join(errs, "; "))
 		}
@@ -519,7 +520,7 @@ func (vm *volumeManager) getUnmountedVolumes(podName types.UniquePodName, expect
 	for _, mountedVolume := range vm.actualStateOfWorld.GetMountedVolumesForPod(podName) {
 		mountedVolumes.Insert(mountedVolume.OuterVolumeSpecName)
 	}
-	klog.V(4).InfoS("Getting umounted volumes for pod", "pod", podName, "mountedVolumes", mountedVolumes, "expectedVolumes", expectedVolumes)
+	klog.V(4).InfoS("Getting umounted volumes for pod", "podUID", podName, "mountedVolumes", mountedVolumes, "expectedVolumes", expectedVolumes)
 	return filterUnmountedVolumes(mountedVolumes, expectedVolumes)
 }
 

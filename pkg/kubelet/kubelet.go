@@ -1797,9 +1797,9 @@ func (kl *Kubelet) syncPod(_ context.Context, updateType kubetypes.SyncPodType, 
 			if err != nil || node.DeletionTimestamp != nil {
 				klog.V(4).InfoS("No need to create a mirror pod, since node has been removed from the cluster", "node", klog.KRef("", string(kl.nodeName)))
 			} else {
-				klog.V(4).InfoS("Creating a mirror pod for static pod", "pod", klog.KObj(pod))
+				klog.V(4).InfoS("Creating a mirror pod for static pod", "pod", klog.KObj(pod), "podUID", pod.ObjectMeta.UID)
 				if err := kl.podManager.CreateMirrorPod(pod); err != nil {
-					klog.ErrorS(err, "Failed creating a mirror pod for", "pod", klog.KObj(pod))
+					klog.ErrorS(err, "Failed creating a mirror pod for", "pod", klog.KObj(pod), "podUID", pod.ObjectMeta.UID)
 				}
 			}
 		}

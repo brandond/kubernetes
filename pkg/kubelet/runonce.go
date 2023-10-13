@@ -27,6 +27,7 @@ import (
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 	"k8s.io/kubernetes/pkg/kubelet/util/format"
+	"k8s.io/kubernetes/pkg/volume/util"
 )
 
 const (
@@ -114,6 +115,7 @@ func (kl *Kubelet) runOnce(ctx context.Context, pods []*v1.Pod, retryDelay time.
 // runPod runs a single pod and wait until all containers are running.
 func (kl *Kubelet) runPod(ctx context.Context, pod *v1.Pod, retryDelay time.Duration) error {
 	var isTerminal bool
+	uniquePodName := util.GetUniquePodName(pod)
 	delay := retryDelay
 	retry := 0
 	for !isTerminal {
@@ -123,14 +125,14 @@ func (kl *Kubelet) runPod(ctx context.Context, pod *v1.Pod, retryDelay time.Dura
 		}
 
 		if kl.isPodRunning(pod, status) {
-			klog.InfoS("Pod's containers running", "pod", klog.KObj(pod))
+			klog.InfoS("Pod's containers running", "pod", klog.KObj(pod), "podUID", uniquePodName)
 			return nil
 		}
-		klog.InfoS("Pod's containers not running: syncing", "pod", klog.KObj(pod))
+		klog.InfoS("Pod's containers not running: syncing", "pod", klog.KObj(pod), "podUID", uniquePodName)
 
-		klog.InfoS("Creating a mirror pod for static pod", "pod", klog.KObj(pod))
+		klog.InfoS("Creating a mirror pod for static pod", "pod", klog.KObj(pod), "podUID", uniquePodName)
 		if err := kl.podManager.CreateMirrorPod(pod); err != nil {
-			klog.ErrorS(err, "Failed creating a mirror pod", "pod", klog.KObj(pod))
+			klog.ErrorS(err, "Failed creating a mirror pod", "pod", klog.KObj(pod), "podUID", uniquePodName)
 		}
 		mirrorPod, _ := kl.podManager.GetMirrorPodByPod(pod)
 		if isTerminal, err = kl.syncPod(ctx, kubetypes.SyncPodUpdate, pod, mirrorPod, status); err != nil {
@@ -140,7 +142,7 @@ func (kl *Kubelet) runPod(ctx context.Context, pod *v1.Pod, retryDelay time.Dura
 			return fmt.Errorf("timeout error: pod %q containers not running after %d retries", format.Pod(pod), runOnceMaxRetries)
 		}
 		// TODO(proppy): health checking would be better than waiting + checking the state at the next iteration.
-		klog.InfoS("Pod's containers synced, waiting", "pod", klog.KObj(pod), "duration", delay)
+		klog.InfoS("Pod's containers synced, waiting", "pod", klog.KObj(pod), "duration", delay, "podUID", uniquePodName)
 		time.Sleep(delay)
 		retry++
 		delay *= runOnceRetryDelayBackoff

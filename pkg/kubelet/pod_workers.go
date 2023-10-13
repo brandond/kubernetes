@@ -828,9 +828,11 @@ func (p *podWorkers) allowPodStart(pod *v1.Pod) (canStart bool, canEverStart boo
 		return false, false
 	}
 	if status.IsTerminationRequested() {
+		klog.V(4).InfoS("Disallowing pod start - termination requested", "pod", klog.KObj(pod), "podUID", pod.UID)
 		return false, false
 	}
 	if !p.allowStaticPodStart(status.fullname, pod.UID) {
+		klog.V(4).InfoS("Disallowing pod start and enqueuing work", "pod", klog.KObj(pod), "podUID", pod.UID)
 		p.workQueue.Enqueue(pod.UID, wait.Jitter(p.backOffPeriod, workerBackOffPeriodJitterFactor))
 		status.working = false
 		return false, true
@@ -844,6 +846,7 @@ func (p *podWorkers) allowPodStart(pod *v1.Pod) (canStart bool, canEverStart boo
 func (p *podWorkers) allowStaticPodStart(fullname string, uid types.UID) bool {
 	startedUID, started := p.startedStaticPodsByFullname[fullname]
 	if started {
+		klog.V(4).InfoS("Found started static pod", "pod", fullname, "podUID", uid, "startedUID", startedUID)
 		return startedUID == uid
 	}
 
@@ -859,6 +862,7 @@ func (p *podWorkers) allowStaticPodStart(fullname string, uid types.UID) bool {
 		// another pod is next in line
 		if waitingUID != uid {
 			p.waitingToStartStaticPodsByFullname[fullname] = waitingPods[i:]
+			klog.V(4).InfoS("Found waiting static pod", "pod", fullname, "podUID", uid, "waitingUID", waitingUID)
 			return false
 		}
 		// we are up next, remove ourselves
@@ -871,6 +875,7 @@ func (p *podWorkers) allowStaticPodStart(fullname string, uid types.UID) bool {
 		delete(p.waitingToStartStaticPodsByFullname, fullname)
 	}
 	p.startedStaticPodsByFullname[fullname] = uid
+	klog.V(4).InfoS("Static pod is up next to run", "pod", fullname, "podUID")
 	return true
 }
 
