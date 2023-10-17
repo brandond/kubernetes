@@ -499,10 +499,12 @@ func (p *podWorkers) ShouldPodRuntimeBeRemoved(uid types.UID) bool {
 	p.podLock.Lock()
 	defer p.podLock.Unlock()
 	if status, ok := p.podSyncStatuses[uid]; ok {
+		klog.V(4).InfoS("ShouldPodRuntimeBeRemoved", "podUID", uid, "status", status)
 		return status.IsTerminated()
 	}
 	// a pod that hasn't been sent to the pod worker yet should have no runtime components once we have
 	// synced all content.
+	klog.V(4).InfoS("ShouldPodRuntimeBeRemoved", "podUID", uid, "podsSynced", p.podsSynced)
 	return p.podsSynced
 }
 

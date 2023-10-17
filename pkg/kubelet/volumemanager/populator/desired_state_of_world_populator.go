@@ -226,8 +226,12 @@ func (dswp *desiredStateOfWorldPopulator) findAndAddNewPods() {
 func (dswp *desiredStateOfWorldPopulator) findAndRemoveDeletedPods() {
 	for _, volumeToMount := range dswp.desiredStateOfWorld.GetVolumesToMount() {
 		pod, podExists := dswp.podManager.GetPodByUID(volumeToMount.Pod.UID)
+		var volumeToMountSpecName string
+		if volumeToMount.VolumeSpec != nil {
+			volumeToMountSpecName = volumeToMount.VolumeSpec.Name()
+		}
+		klog.V(4).InfoS("findAndRemoveDeletedPods checking volume from desired state", "podUID", volumeToMount.Pod.UID, "podExists", podExists, "volumeName", volumeToMountSpecName)
 		if podExists {
-
 			// check if the attachability has changed for this volume
 			if volumeToMount.PluginIsAttachable {
 				attachableVolumePlugin, err := dswp.volumePluginMgr.FindAttachablePluginBySpec(volumeToMount.VolumeSpec)
@@ -243,9 +247,11 @@ func (dswp *desiredStateOfWorldPopulator) findAndRemoveDeletedPods() {
 
 			// Exclude known pods that we expect to be running
 			if !dswp.podStateProvider.ShouldPodRuntimeBeRemoved(pod.UID) {
+				klog.V(4).InfoS("Pod runtime should not be removed", "podUID", pod.UID)
 				continue
 			}
 			if dswp.keepTerminatedPodVolumes {
+				klog.V(4).InfoS("Keeping volumes for terminated pod", "podUID", pod.UID)
 				continue
 			}
 		}
@@ -257,10 +263,6 @@ func (dswp *desiredStateOfWorldPopulator) findAndRemoveDeletedPods() {
 		if !dswp.podStateProvider.ShouldPodRuntimeBeRemoved(volumeToMount.Pod.UID) {
 			klog.V(4).InfoS("Pod still has one or more containers in the non-exited state and will not be removed from desired state", "pod", klog.KObj(volumeToMount.Pod))
 			continue
-		}
-		var volumeToMountSpecName string
-		if volumeToMount.VolumeSpec != nil {
-			volumeToMountSpecName = volumeToMount.VolumeSpec.Name()
 		}
 		removed := dswp.actualStateOfWorld.PodRemovedFromVolume(volumeToMount.PodName, volumeToMount.VolumeName)
 		if removed && podExists {
