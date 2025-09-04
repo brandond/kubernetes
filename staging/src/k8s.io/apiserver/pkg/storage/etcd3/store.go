@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"path"
 	"reflect"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -151,6 +152,9 @@ func New(c *kubernetes.Client, compactor Compactor, codec runtime.Codec, newFunc
 		// Ensure the pathPrefix ends in "/" here to simplify key concatenation later.
 		pathPrefix += "/"
 	}
+
+	klog.Errorf("Creating new etcd3.store with resourcePrefix=%s", resourcePrefix)
+	debug.PrintStack()
 
 	listErrAggrFactory := defaultListErrorAggregatorFactory
 	if utilfeature.DefaultFeatureGate.Enabled(features.AllowUnsafeMalformedObjectDeletion) {
@@ -659,6 +663,7 @@ func (s *store) SetKeysFunc(keys storage.KeysFunc) {
 
 func (s *store) getKeys(ctx context.Context) ([]string, error) {
 	startTime := time.Now()
+	klog.Errorf("etcd3.store getKeys resourcePrefix=%s", s.resourcePrefix)
 	prefix, err := s.prepareKey(s.resourcePrefix)
 	if err != nil {
 		return nil, err
@@ -1112,6 +1117,7 @@ func (s *store) prepareKey(key string) (string, error) {
 		return "", fmt.Errorf("invalid key: %q", key)
 	}
 	if key == "" || key == "/" {
+		debug.PrintStack()
 		return "", fmt.Errorf("empty key: %q", key)
 	}
 	// We ensured that pathPrefix ends in '/' in construction, so skip any leading '/' in the key now.

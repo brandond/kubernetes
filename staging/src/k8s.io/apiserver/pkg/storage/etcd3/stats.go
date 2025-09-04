@@ -43,6 +43,7 @@ func newStatsCache(prefix string, getKeys storage.KeysFunc) *statsCache {
 		stop:    make(chan struct{}),
 		keys:    make(map[string]sizeRevision),
 	}
+	klog.Errorf("Creating new etcd3.statsCache with prefix=%s", prefix)
 	sc.wg.Add(1)
 	go func() {
 		defer sc.wg.Done()
