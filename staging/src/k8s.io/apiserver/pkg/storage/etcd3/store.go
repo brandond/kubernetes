@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"path"
 	"reflect"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -1112,6 +1113,7 @@ func (s *store) prepareKey(key string) (string, error) {
 		return "", fmt.Errorf("invalid key: %q", key)
 	}
 	if key == "" || key == "/" {
+		debug.PrintStack()
 		return "", fmt.Errorf("empty key: %q", key)
 	}
 	// We ensured that pathPrefix ends in '/' in construction, so skip any leading '/' in the key now.
