@@ -84,13 +84,10 @@ func StartTestServerWithOptions(t *testing.T,
 	constructors map[string]app.ControllerInitFuncConstructor,
 	aliases map[string]string) (result TestServer, err error) {
 	logger := klog.FromContext(ctx)
-	stopCh := make(chan struct{})
 	var errCh chan error
 	configDoneCh := make(chan struct{})
 	var capturedConfig config.CompletedConfig
 	tearDown := func() {
-		close(stopCh)
-
 		// If cloud-controller-manager was started, let's wait for
 		// it to shutdown clearly.
 		if errCh != nil {
@@ -131,7 +128,7 @@ func StartTestServerWithOptions(t *testing.T,
 		return cloud
 	}
 	fss := cliflag.NamedFlagSets{}
-	command := app.NewCloudControllerManagerCommand(s, cloudInitializer, constructors, aliases, fss, stopCh)
+	command := app.NewCloudControllerManagerCommand(ctx, s, cloudInitializer, constructors, aliases, fss)
 
 	commandArgs := []string{}
 	listeners := []net.Listener{}

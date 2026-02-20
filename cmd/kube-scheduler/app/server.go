@@ -86,7 +86,7 @@ func init() {
 type Option func(runtime.Registry) error
 
 // NewSchedulerCommand creates a *cobra.Command object with default parameters and registryOptions
-func NewSchedulerCommand(stopCh <-chan struct{}, registryOptions ...Option) *cobra.Command {
+func NewSchedulerCommand(ctx context.Context, registryOptions ...Option) *cobra.Command {
 	opts := options.NewOptions()
 
 	cmd := &cobra.Command{
@@ -104,7 +104,7 @@ for more information about scheduling and the kube-scheduler component.`,
 			return opts.ComponentGlobalsRegistry.Set()
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCommand(cmd, opts, stopCh, registryOptions...)
+			return runCommand(cmd, opts, registryOptions...)
 		},
 		Args: func(cmd *cobra.Command, args []string) error {
 			for _, arg := range args {
@@ -116,6 +116,7 @@ for more information about scheduling and the kube-scheduler component.`,
 		},
 	}
 
+	cmd.SetContext(ctx)
 	nfs := opts.Flags
 	verflag.AddFlags(nfs.FlagSet("global"))
 	globalflag.AddGlobalFlags(nfs.FlagSet("global"), cmd.Name(), logs.SkipLoggingConfigurationFlags())
@@ -135,7 +136,7 @@ for more information about scheduling and the kube-scheduler component.`,
 }
 
 // runCommand runs the scheduler.
-func runCommand(cmd *cobra.Command, opts *options.Options, stopCh <-chan struct{}, registryOptions ...Option) error {
+func runCommand(cmd *cobra.Command, opts *options.Options, registryOptions ...Option) error {
 	verflag.PrintAndExitIfRequested()
 	fg := opts.ComponentGlobalsRegistry.FeatureGateFor(basecompatibility.DefaultKubeComponent)
 	// Activate logging as soon as possible, after that
@@ -146,14 +147,7 @@ func runCommand(cmd *cobra.Command, opts *options.Options, stopCh <-chan struct{
 	}
 	cliflag.PrintFlags(cmd.Flags())
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		<-stopCh
-		cancel()
-	}()
-
-	cc, sched, err := Setup(ctx, opts, registryOptions...)
+	cc, sched, err := Setup(cmd.Context(), opts, registryOptions...)
 	if err != nil {
 		return err
 	}
@@ -162,7 +156,7 @@ func runCommand(cmd *cobra.Command, opts *options.Options, stopCh <-chan struct{
 	// add component version metrics
 	opts.ComponentGlobalsRegistry.AddMetrics()
 
-	return Run(ctx, cc, sched)
+	return Run(cmd.Context(), cc, sched)
 }
 
 // Run executes the scheduler based on the given configuration. It only returns on error or when context is done.

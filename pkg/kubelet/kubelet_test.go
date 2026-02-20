@@ -406,7 +406,7 @@ func newTestKubeletWithImageList(
 		NodeRef:                         nodeRef,
 		GetPodsFunc:                     kubelet.podManager.GetPods,
 		KillPodFunc:                     killPodNow(kubelet.podWorkers, fakeRecorder),
-		SyncNodeStatusFunc:              func() {},
+		SyncNodeStatusFunc:              func(_ context.Context) {},
 		ShutdownGracePeriodRequested:    0,
 		ShutdownGracePeriodCriticalPods: 0,
 	})
@@ -3092,7 +3092,7 @@ func TestSyncLabels(t *testing.T) {
 			test.existingNode.Name = string(kl.nodeName)
 
 			kl.nodeLister = testNodeLister{nodes: []*v1.Node{test.existingNode}}
-			go func() { kl.syncNodeStatus() }()
+			go func() { kl.syncNodeStatus(t.Context()) }()
 
 			err := retryWithExponentialBackOff(
 				100*time.Millisecond,
@@ -3348,7 +3348,7 @@ func TestNewMainKubeletStandAlone(t *testing.T) {
 	assert.NotNil(t, testMainKubelet, "testMainKubelet should not be nil")
 
 	testMainKubelet.BirthCry()
-	testMainKubelet.StartGarbageCollection()
+	testMainKubelet.StartGarbageCollection(tCtx)
 	// Nil pointer panic can be reproduced if configmap manager is not nil.
 	// See https://github.com/kubernetes/kubernetes/issues/113492
 	// pod := &v1.Pod{

@@ -44,16 +44,16 @@ func (a containerStatusbyCreatedList) Less(i, j int) bool {
 	return a[i].CreatedAt.After(a[j].CreatedAt)
 }
 
-func newPodContainerDeletor(runtime kubecontainer.Runtime, containersToKeep int) *podContainerDeletor {
+func newPodContainerDeletor(ctx context.Context, runtime kubecontainer.Runtime, containersToKeep int) *podContainerDeletor {
 	buffer := make(chan kubecontainer.ContainerID, containerDeletorBufferLimit)
-	go wait.Until(func() {
+	go wait.UntilWithContext(ctx, func(ctx context.Context) {
 		for {
 			id := <-buffer
-			if err := runtime.DeleteContainer(context.Background(), id); err != nil {
-				klog.InfoS("DeleteContainer returned error", "containerID", id, "err", err)
+			if err := runtime.DeleteContainer(ctx, id); err != nil {
+				klog.FromContext(ctx).Info("DeleteContainer returned error", "containerID", id, "err", err)
 			}
 		}
-	}, 0, wait.NeverStop)
+	}, 0)
 
 	return &podContainerDeletor{
 		worker:           buffer,

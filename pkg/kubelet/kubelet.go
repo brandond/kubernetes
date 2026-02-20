@@ -296,11 +296,11 @@ type Option func(*Kubelet)
 type Bootstrap interface {
 	GetConfiguration() kubeletconfiginternal.KubeletConfiguration
 	BirthCry()
-	StartGarbageCollection()
+	StartGarbageCollection(ctx context.Context)
 	ListenAndServe(ctx context.Context, kubeCfg *kubeletconfiginternal.KubeletConfiguration, tlsOptions *server.TLSOptions, auth server.AuthInterface, tp trace.TracerProvider)
 	ListenAndServeReadOnly(ctx context.Context, address net.IP, port uint, tp trace.TracerProvider)
 	ListenAndServePodResources(ctx context.Context)
-	Run(<-chan kubetypes.PodUpdate)
+	Run(ctx context.Context, updates <-chan kubetypes.PodUpdate)
 }
 
 // Dependencies is a bin for things we might consider "injected dependencies" -- objects constructed
@@ -398,13 +398,13 @@ func makePodSourceConfig(kubeCfg *kubeletconfiginternal.KubeletConfiguration, ku
 }
 
 // PreInitRuntimeService will init runtime service before RunKubelet.
-func PreInitRuntimeService(kubeCfg *kubeletconfiginternal.KubeletConfiguration, kubeDeps *Dependencies) error {
+func PreInitRuntimeService(ctx context.Context, kubeCfg *kubeletconfiginternal.KubeletConfiguration, kubeDeps *Dependencies) error {
 	remoteImageEndpoint := kubeCfg.ImageServiceEndpoint
 	if remoteImageEndpoint == "" && kubeCfg.ContainerRuntimeEndpoint != "" {
 		remoteImageEndpoint = kubeCfg.ContainerRuntimeEndpoint
 	}
 	var err error
-	logger := klog.Background()
+	logger := klog.FromContext(ctx)
 	if kubeDeps.RemoteRuntimeService, err = remote.NewRemoteRuntimeService(kubeCfg.ContainerRuntimeEndpoint, kubeCfg.RuntimeRequestTimeout.Duration, kubeDeps.TracerProvider, &logger); err != nil {
 		return err
 	}
@@ -889,7 +889,7 @@ func NewMainKubelet(ctx context.Context,
 		return nil, err
 	}
 	klet.containerGC = containerGC
-	klet.containerDeletor = newPodContainerDeletor(klet.containerRuntime, max(containerGCPolicy.MaxPerPodContainer, minDeadContainerInPod))
+	klet.containerDeletor = newPodContainerDeletor(ctx, klet.containerRuntime, max(containerGCPolicy.MaxPerPodContainer, minDeadContainerInPod))
 
 	// setup imageManager
 	imageManager, err := images.NewImageGCManager(klet.containerRuntime, klet.StatsProvider, postImageGCHooks, kubeDeps.Recorder, nodeRef, imageGCPolicy, kubeDeps.TracerProvider)
@@ -1617,10 +1617,9 @@ func (kl *Kubelet) setupDataDirs() error {
 }
 
 // StartGarbageCollection starts garbage collection threads.
-func (kl *Kubelet) StartGarbageCollection() {
+func (kl *Kubelet) StartGarbageCollection(ctx context.Context) {
 	loggedContainerGCFailure := false
-	go wait.Until(func() {
-		ctx := context.Background()
+	go wait.UntilWithContext(ctx, func(ctx context.Context) {
 		if err := kl.containerGC.GarbageCollect(ctx); err != nil {
 			klog.ErrorS(err, "Container garbage collection failed")
 			kl.recorder.Eventf(kl.nodeRef, v1.EventTypeWarning, events.ContainerGCFailed, err.Error())
@@ -1634,7 +1633,7 @@ func (kl *Kubelet) StartGarbageCollection() {
 
 			klog.V(vLevel).InfoS("Container garbage collection succeeded")
 		}
-	}, ContainerGCPeriod, wait.NeverStop)
+	}, ContainerGCPeriod)
 
 	// when the high threshold is set to 100, and the max age is 0 (or the max age feature is disabled)
 	// stub the image GC manager
@@ -1645,8 +1644,7 @@ func (kl *Kubelet) StartGarbageCollection() {
 
 	prevImageGCFailed := false
 	beganGC := time.Now()
-	go wait.Until(func() {
-		ctx := context.Background()
+	go wait.UntilWithContext(ctx, func(context.Context) {
 		if err := kl.imageManager.GarbageCollect(ctx, beganGC); err != nil {
 			if prevImageGCFailed {
 				klog.ErrorS(err, "Image garbage collection failed multiple times in a row")
@@ -1665,7 +1663,7 @@ func (kl *Kubelet) StartGarbageCollection() {
 
 			klog.V(vLevel).InfoS("Image garbage collection succeeded")
 		}
-	}, ImageGCPeriod, wait.NeverStop)
+	}, ImageGCPeriod)
 }
 
 // initializeModules will initialize internal modules that do not require the container runtime to be up.
@@ -1763,7 +1761,7 @@ func (kl *Kubelet) initializeRuntimeDependentModules(ctx context.Context) {
 	klog.V(4).InfoS("Starting plugin manager")
 	go kl.pluginManager.Run(ctx, kl.sourcesReady, wait.NeverStop)
 
-	err = kl.shutdownManager.Start()
+	err = kl.shutdownManager.Start(ctx)
 	if err != nil {
 		// The shutdown manager is not critical for kubelet, so log failure, but don't block Kubelet startup if there was a failure starting it.
 		klog.ErrorS(err, "Failed to start node shutdown manager")
@@ -1771,8 +1769,7 @@ func (kl *Kubelet) initializeRuntimeDependentModules(ctx context.Context) {
 }
 
 // Run starts the kubelet reacting to config updates
-func (kl *Kubelet) Run(updates <-chan kubetypes.PodUpdate) {
-	ctx := context.Background()
+func (kl *Kubelet) Run(ctx context.Context, updates <-chan kubetypes.PodUpdate) {
 	if kl.logServer == nil {
 		file := http.FileServer(http.Dir(nodeLogDir))
 		if utilfeature.DefaultFeatureGate.Enabled(features.NodeLogQuery) && kl.kubeletConfiguration.EnableSystemLogQuery {
@@ -1843,14 +1840,14 @@ func (kl *Kubelet) Run(updates <-chan kubetypes.PodUpdate) {
 		go func() {
 			// Call updateRuntimeUp once before syncNodeStatus to make sure kubelet had already checked runtime state
 			// otherwise when restart kubelet, syncNodeStatus will report node notReady in first report period
-			kl.updateRuntimeUp()
-			wait.JitterUntil(kl.syncNodeStatus, kl.nodeStatusUpdateFrequency, 0.04, true, wait.NeverStop)
+			kl.updateRuntimeUp(ctx)
+			wait.JitterUntilWithContext(ctx, kl.syncNodeStatus, kl.nodeStatusUpdateFrequency, 0.04, true)
 		}()
 
-		go kl.fastStatusUpdateOnce()
+		go kl.fastStatusUpdateOnce(ctx)
 
 		// start syncing lease
-		go kl.nodeLeaseController.Run(context.Background())
+		go kl.nodeLeaseController.Run(ctx)
 
 		// Mirror pods for static pods may not be created immediately during node startup
 		// due to node registration or informer sync delays. They will be created eventually
@@ -1859,7 +1856,7 @@ func (kl *Kubelet) Run(updates <-chan kubetypes.PodUpdate) {
 		// mirror pods are created as soon as the node registers.
 		go kl.fastStaticPodsRegistration(ctx)
 	}
-	go wait.Until(kl.updateRuntimeUp, 5*time.Second, wait.NeverStop)
+	go wait.UntilWithContext(ctx, kl.updateRuntimeUp, 5*time.Second)
 
 	// Set up iptables util rules
 	if kl.makeIPTablesUtilChains {
@@ -2179,13 +2176,10 @@ func (kl *Kubelet) SyncPod(ctx context.Context, updateType kubetypes.SyncPodType
 // during eviction). This method is not guaranteed to be called if a pod is force deleted from the
 // configuration and the kubelet is restarted - SyncTerminatingRuntimePod handles those orphaned
 // pods.
-func (kl *Kubelet) SyncTerminatingPod(_ context.Context, pod *v1.Pod, podStatus *kubecontainer.PodStatus, gracePeriod *int64, podStatusFn func(*v1.PodStatus)) (err error) {
-	// TODO(#113606): connect this with the incoming context parameter, which comes from the pod worker.
-	// Currently, using that context causes test failures.
-	ctx := context.Background()
-
+func (kl *Kubelet) SyncTerminatingPod(ctx context.Context, pod *v1.Pod, podStatus *kubecontainer.PodStatus, gracePeriod *int64, podStatusFn func(*v1.PodStatus)) (err error) {
 	logger := klog.FromContext(ctx)
-	klog.V(4).InfoS("SyncTerminatingPod enter", "pod", klog.KObj(pod), "podUID", pod.UID)
+
+	logger.V(4).Info("SyncTerminatingPod enter", "pod", klog.KObj(pod), "podUID", pod.UID)
 
 	ctx, otelSpan := kl.tracer.Start(ctx, "syncTerminatingPod", trace.WithAttributes(
 		semconv.K8SPodUIDKey.String(string(pod.UID)),
@@ -2199,7 +2193,7 @@ func (kl *Kubelet) SyncTerminatingPod(_ context.Context, pod *v1.Pod, podStatus 
 			otelSpan.SetStatus(codes.Error, err.Error())
 		}
 		otelSpan.End()
-		klog.V(4).InfoS("SyncTerminatingPod exit", "pod", klog.KObj(pod), "podUID", pod.UID)
+		logger.V(4).Info("SyncTerminatingPod exit", "pod", klog.KObj(pod), "podUID", pod.UID)
 	}()
 
 	apiPodStatus := kl.generateAPIPodStatus(pod, podStatus, false)
@@ -2209,9 +2203,9 @@ func (kl *Kubelet) SyncTerminatingPod(_ context.Context, pod *v1.Pod, podStatus 
 	kl.statusManager.SetPodStatus(logger, pod, apiPodStatus)
 
 	if gracePeriod != nil {
-		klog.V(4).InfoS("Pod terminating with grace period", "pod", klog.KObj(pod), "podUID", pod.UID, "gracePeriod", *gracePeriod)
+		logger.V(4).Info("Pod terminating with grace period", "pod", klog.KObj(pod), "podUID", pod.UID, "gracePeriod", *gracePeriod)
 	} else {
-		klog.V(4).InfoS("Pod terminating with grace period", "pod", klog.KObj(pod), "podUID", pod.UID, "gracePeriod", nil)
+		logger.V(4).Info("Pod terminating with grace period", "pod", klog.KObj(pod), "podUID", pod.UID, "gracePeriod", nil)
 	}
 
 	kl.probeManager.StopLivenessAndStartup(pod)
@@ -2237,7 +2231,7 @@ func (kl *Kubelet) SyncTerminatingPod(_ context.Context, pod *v1.Pod, podStatus 
 	//  cache immediately
 	stoppedPodStatus, err := kl.containerRuntime.GetPodStatus(ctx, pod.UID, pod.Name, pod.Namespace)
 	if err != nil {
-		klog.ErrorS(err, "Unable to read pod status prior to final pod termination", "pod", klog.KObj(pod), "podUID", pod.UID)
+		logger.Error(err, "Unable to read pod status prior to final pod termination", "pod", klog.KObj(pod), "podUID", pod.UID)
 		return err
 	}
 	preserveDataFromBeforeStopping(stoppedPodStatus, podStatus)
@@ -2261,7 +2255,7 @@ func (kl *Kubelet) SyncTerminatingPod(_ context.Context, pod *v1.Pod, podStatus 
 	}
 	if klogVEnabled {
 		sort.Slice(containers, func(i, j int) bool { return containers[i].Name < containers[j].Name })
-		klog.V(4).InfoS("Post-termination container state", "pod", klog.KObj(pod), "podUID", pod.UID, "containers", containers)
+		logger.V(4).Info("Post-termination container state", "pod", klog.KObj(pod), "podUID", pod.UID, "containers", containers)
 	}
 	if len(runningContainers) > 0 {
 		return fmt.Errorf("detected running containers after a successful KillPod, CRI violation: %v", runningContainers)
@@ -2284,7 +2278,7 @@ func (kl *Kubelet) SyncTerminatingPod(_ context.Context, pod *v1.Pod, podStatus 
 	kl.statusManager.SetPodStatus(logger, pod, apiPodStatus)
 
 	// we have successfully stopped all containers, the pod is terminating, our status is "done"
-	klog.V(4).InfoS("Pod termination stopped all running containers", "pod", klog.KObj(pod), "podUID", pod.UID)
+	logger.V(4).Info("Pod termination stopped all running containers", "pod", klog.KObj(pod), "podUID", pod.UID)
 
 	return nil
 }
@@ -2305,16 +2299,14 @@ func preserveDataFromBeforeStopping(stoppedPodStatus, podStatus *kubecontainer.P
 // that the remnant of the running pod is terminated and allow garbage collection to proceed. We do
 // not update the status of the pod because with the source of configuration removed, we have no
 // place to send that status.
-func (kl *Kubelet) SyncTerminatingRuntimePod(_ context.Context, runningPod *kubecontainer.Pod) error {
-	// TODO(#113606): connect this with the incoming context parameter, which comes from the pod worker.
-	// Currently, using that context causes test failures.
-	ctx := context.Background()
+func (kl *Kubelet) SyncTerminatingRuntimePod(ctx context.Context, runningPod *kubecontainer.Pod) error {
+	logger := klog.FromContext(ctx)
 	pod := runningPod.ToAPIPod()
-	klog.V(4).InfoS("SyncTerminatingRuntimePod enter", "pod", klog.KObj(pod), "podUID", pod.UID)
-	defer klog.V(4).InfoS("SyncTerminatingRuntimePod exit", "pod", klog.KObj(pod), "podUID", pod.UID)
+	logger.V(4).Info("SyncTerminatingRuntimePod enter", "pod", klog.KObj(pod), "podUID", pod.UID)
+	defer logger.V(4).Info("SyncTerminatingRuntimePod exit", "pod", klog.KObj(pod), "podUID", pod.UID)
 
 	// we kill the pod directly since we have lost all other information about the pod.
-	klog.V(4).InfoS("Orphaned running pod terminating without grace period", "pod", klog.KObj(pod), "podUID", pod.UID)
+	logger.V(4).Info("Orphaned running pod terminating without grace period", "pod", klog.KObj(pod), "podUID", pod.UID)
 	// TODO: this should probably be zero, to bypass any waiting (needs fixes in container runtime)
 	gracePeriod := int64(1)
 	if err := kl.killPod(ctx, pod, *runningPod, &gracePeriod); err != nil {
@@ -2323,7 +2315,7 @@ func (kl *Kubelet) SyncTerminatingRuntimePod(_ context.Context, runningPod *kube
 		utilruntime.HandleError(err)
 		return err
 	}
-	klog.V(4).InfoS("Pod termination stopped all running orphaned containers", "pod", klog.KObj(pod), "podUID", pod.UID)
+	logger.V(4).Info("Pod termination stopped all running orphaned containers", "pod", klog.KObj(pod), "podUID", pod.UID)
 	return nil
 }
 
@@ -2345,8 +2337,8 @@ func (kl *Kubelet) SyncTerminatedPod(ctx context.Context, pod *v1.Pod, podStatus
 	))
 	logger := klog.FromContext(ctx)
 	defer otelSpan.End()
-	klog.V(4).InfoS("SyncTerminatedPod enter", "pod", klog.KObj(pod), "podUID", pod.UID)
-	defer klog.V(4).InfoS("SyncTerminatedPod exit", "pod", klog.KObj(pod), "podUID", pod.UID)
+	logger.V(4).Info("SyncTerminatedPod enter", "pod", klog.KObj(pod), "podUID", pod.UID)
+	defer logger.V(4).Info("SyncTerminatedPod exit", "pod", klog.KObj(pod), "podUID", pod.UID)
 
 	// generate the final status of the pod
 	// TODO: should we simply fold this into TerminatePod? that would give a single pod update
@@ -2359,20 +2351,20 @@ func (kl *Kubelet) SyncTerminatedPod(ctx context.Context, pod *v1.Pod, podStatus
 	if err := kl.volumeManager.WaitForUnmount(ctx, pod); err != nil {
 		return err
 	}
-	klog.V(4).InfoS("Pod termination unmounted volumes", "pod", klog.KObj(pod), "podUID", pod.UID)
+	logger.V(4).Info("Pod termination unmounted volumes", "pod", klog.KObj(pod), "podUID", pod.UID)
 
 	// This waiting loop relies on the background cleanup which starts after pod workers respond
 	// true for ShouldPodRuntimeBeRemoved, which happens after `SyncTerminatingPod` is completed.
 	if err := wait.PollUntilContextCancel(ctx, 100*time.Millisecond, true, func(ctx context.Context) (bool, error) {
 		volumesExist := kl.podVolumesExist(pod.UID)
 		if volumesExist {
-			klog.V(3).InfoS("Pod is terminated, but some volumes have not been cleaned up", "pod", klog.KObj(pod), "podUID", pod.UID)
+			logger.V(3).Info("Pod is terminated, but some volumes have not been cleaned up", "pod", klog.KObj(pod), "podUID", pod.UID)
 		}
 		return !volumesExist, nil
 	}); err != nil {
 		return err
 	}
-	klog.V(3).InfoS("Pod termination cleaned up volume paths", "pod", klog.KObj(pod), "podUID", pod.UID)
+	logger.V(3).Info("Pod termination cleaned up volume paths", "pod", klog.KObj(pod), "podUID", pod.UID)
 
 	// After volume unmount is complete, let the secret and configmap managers know we're done with this pod
 	if kl.secretManager != nil {
@@ -2393,14 +2385,14 @@ func (kl *Kubelet) SyncTerminatedPod(ctx context.Context, pod *v1.Pod, podStatus
 		if err := pcm.Destroy(logger, name); err != nil {
 			return err
 		}
-		klog.V(4).InfoS("Pod termination removed cgroups", "pod", klog.KObj(pod), "podUID", pod.UID)
+		logger.V(4).Info("Pod termination removed cgroups", "pod", klog.KObj(pod), "podUID", pod.UID)
 	}
 
 	kl.usernsManager.Release(logger, pod.UID)
 
 	// mark the final pod status
 	kl.statusManager.TerminatePod(logger, pod)
-	klog.V(4).InfoS("Pod is terminated and will need no more status updates", "pod", klog.KObj(pod), "podUID", pod.UID)
+	logger.V(4).Info("Pod is terminated and will need no more status updates", "pod", klog.KObj(pod), "podUID", pod.UID)
 
 	return nil
 }
@@ -3105,10 +3097,9 @@ func (kl *Kubelet) SyncLoopHealthCheck(req *http.Request) error {
 // the runtime dependent modules when the container runtime first comes up,
 // and returns an error if the status check fails.  If the status check is OK,
 // update the container runtime uptime in the kubelet runtimeState.
-func (kl *Kubelet) updateRuntimeUp() {
+func (kl *Kubelet) updateRuntimeUp(ctx context.Context) {
 	kl.updateRuntimeMux.Lock()
 	defer kl.updateRuntimeMux.Unlock()
-	ctx := context.Background()
 
 	s, err := kl.containerRuntime.Status(ctx)
 	if err != nil {
@@ -3222,20 +3213,16 @@ func (kl *Kubelet) cleanUpContainersInPod(podID types.UID, exitedContainerID str
 // Function returns after the node status update after such event, or when the node is already ready.
 // Function is executed only during Kubelet start which improves latency to ready node by updating
 // kubelet state, runtime status and node statuses ASAP.
-func (kl *Kubelet) fastStatusUpdateOnce() {
-	ctx := context.Background()
+func (kl *Kubelet) fastStatusUpdateOnce(ctx context.Context) {
 	start := kl.clock.Now()
-	stopCh := make(chan struct{})
 
 	// Keep trying to make fast node status update until either timeout is reached or an update is successful.
-	wait.Until(func() {
+	wait.PollUntilContextCancel(ctx, 100*time.Millisecond, true, func(ctx context.Context) (bool, error) {
 		// fastNodeStatusUpdate returns true when it succeeds or when the grace period has expired
 		// (status was not updated within nodeReadyGracePeriod and the second argument below gets true),
 		// then we close the channel and abort the loop.
-		if kl.fastNodeStatusUpdate(ctx, kl.clock.Since(start) >= nodeReadyGracePeriod) {
-			close(stopCh)
-		}
-	}, 100*time.Millisecond, stopCh)
+		return kl.fastNodeStatusUpdate(ctx, kl.clock.Since(start) >= nodeReadyGracePeriod), nil
+	})
 }
 
 // CheckpointContainer tries to checkpoint a container. The parameters are used to

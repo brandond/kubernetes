@@ -315,7 +315,7 @@ func (s *KubeControllerManagerOptions) Flags(allControllers []string, disabledBy
 	if !utilfeature.DefaultFeatureGate.Enabled(featuregate.Feature(clientgofeaturegate.WatchListClient)) {
 		ver := version.MustParse("1.34")
 		if err := utilfeature.DefaultMutableFeatureGate.OverrideDefaultAtVersion(featuregate.Feature(clientgofeaturegate.WatchListClient), true, ver); err != nil {
-			klog.Infof(fmt.Sprintf("unable to set %s feature gate, err: %v", clientgofeaturegate.WatchListClient, err))
+			klog.Infof("unable to set %s feature gate, err: %v", clientgofeaturegate.WatchListClient, err)
 		}
 	}
 
