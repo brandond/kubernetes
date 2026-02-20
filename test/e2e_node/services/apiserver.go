@@ -47,7 +47,6 @@ AwEHoUQDQgAEH6cuzP8XuD5wal6wf9M6xDljTOPLX2i8uIp/C/ASqiIGUeeKQtX0
 // APIServer is a server which manages apiserver.
 type APIServer struct {
 	storageConfig storagebackend.Config
-	stopCh        chan struct{}
 	cancel        func(error)
 }
 
@@ -55,7 +54,6 @@ type APIServer struct {
 func NewAPIServer(storageConfig storagebackend.Config) *APIServer {
 	return &APIServer{
 		storageConfig: storageConfig,
-		stopCh:        make(chan struct{}),
 	}
 }
 
@@ -114,7 +112,7 @@ func (a *APIServer) Start(ctx context.Context) error {
 			return
 		}
 
-		err = apiserver.Run(ctx, completedOptions, a.stopCh)
+		err = apiserver.Run(ctx, completedOptions)
 		if err != nil {
 			errCh <- fmt.Errorf("run apiserver error: %w", err)
 			return
@@ -133,10 +131,6 @@ func (a *APIServer) Stop() error {
 	// nil when Start has never been called.
 	if a.cancel != nil {
 		a.cancel(errors.New("stopping API server"))
-	}
-	if a.stopCh != nil {
-		close(a.stopCh)
-		a.stopCh = nil
 	}
 	return nil
 }

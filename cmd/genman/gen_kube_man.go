@@ -59,39 +59,40 @@ func main() {
 	// Set environment variables used by command so the output is consistent,
 	// regardless of where we run.
 	os.Setenv("HOME", "/home/username")
+	ctx := server.SetupSignalContext()
 
 	switch module {
 	case "kube-apiserver":
 		// generate manpage for kube-apiserver
-		apiserver := apiservapp.NewAPIServerCommand(server.SetupSignalHandler())
+		apiserver := apiservapp.NewAPIServerCommand(ctx)
 		genMarkdown(apiserver, "", outDir)
 		for _, c := range apiserver.Commands() {
 			genMarkdown(c, "kube-apiserver", outDir)
 		}
 	case "kube-controller-manager":
 		// generate manpage for kube-controller-manager
-		controllermanager := cmapp.NewControllerManagerCommand()
+		controllermanager := cmapp.NewControllerManagerCommand(ctx)
 		genMarkdown(controllermanager, "", outDir)
 		for _, c := range controllermanager.Commands() {
 			genMarkdown(c, "kube-controller-manager", outDir)
 		}
 	case "kube-proxy":
 		// generate manpage for kube-proxy
-		proxy := proxyapp.NewProxyCommand()
+		proxy := proxyapp.NewProxyCommand(ctx)
 		genMarkdown(proxy, "", outDir)
 		for _, c := range proxy.Commands() {
 			genMarkdown(c, "kube-proxy", outDir)
 		}
 	case "kube-scheduler":
 		// generate manpage for kube-scheduler
-		scheduler := schapp.NewSchedulerCommand(server.SetupSignalHandler())
+		scheduler := schapp.NewSchedulerCommand(ctx)
 		genMarkdown(scheduler, "", outDir)
 		for _, c := range scheduler.Commands() {
 			genMarkdown(c, "kube-scheduler", outDir)
 		}
 	case "kubelet":
 		// generate manpage for kubelet
-		kubelet := kubeletapp.NewKubeletCommand(server.SetupSignalContext())
+		kubelet := kubeletapp.NewKubeletCommand(ctx)
 		genMarkdown(kubelet, "", outDir)
 		for _, c := range kubelet.Commands() {
 			genMarkdown(c, "kubelet", outDir)

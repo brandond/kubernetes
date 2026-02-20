@@ -31,7 +31,7 @@ import (
 )
 
 func main() {
-	command := app.NewAPIServerCommand(server.SetupSignalHandler())
+	command := app.NewAPIServerCommand(server.SetupSignalContext())
 	code := cli.Run(command)
 	os.Exit(code)
 }

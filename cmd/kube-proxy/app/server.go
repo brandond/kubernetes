@@ -95,7 +95,7 @@ type proxyRun interface {
 }
 
 // NewProxyCommand creates a *cobra.Command object with default parameters
-func NewProxyCommand() *cobra.Command {
+func NewProxyCommand(ctx context.Context) *cobra.Command {
 	opts := NewOptions()
 
 	cmd := &cobra.Command{
@@ -147,6 +147,7 @@ with the apiserver API to configure the proxy.`,
 		},
 	}
 
+	cmd.SetContext(ctx)
 	fs := cmd.Flags()
 	opts.AddFlags(fs)
 	fs.AddGoFlagSet(goflag.CommandLine) // for --boot-id-file and --machine-id-file

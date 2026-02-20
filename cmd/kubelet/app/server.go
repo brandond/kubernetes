@@ -176,6 +176,7 @@ is checked every 20 seconds (also configurable with a flag).`,
 		DisableFlagParsing: true,
 		SilenceUsage:       true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
 			// initial flag parse, since we disable cobra's flag parsing
 			if err := cleanFlagSet.Parse(args); err != nil {
 				return fmt.Errorf("failed to parse kubelet flag: %w", err)
@@ -306,6 +307,7 @@ is checked every 20 seconds (also configurable with a flag).`,
 	cmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s\n\n"+usageFmt, cmd.Long, cmd.UseLine(), cleanFlagSet.FlagUsagesWrapped(2))
 	})
+	cmd.SetContext(ctx)
 
 	return cmd
 }
