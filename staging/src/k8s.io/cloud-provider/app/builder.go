@@ -17,11 +17,11 @@ limitations under the License.
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/cloud-provider/names"
 	"k8s.io/cloud-provider/options"
 	cliflag "k8s.io/component-base/cli/flag"
@@ -37,7 +37,7 @@ type CommandBuilder struct {
 	additionalFlags                cliflag.NamedFlagSets
 	options                        *options.CloudControllerManagerOptions
 	cloudInitializer               InitCloudFunc
-	stopCh                         <-chan struct{}
+	ctx                            context.Context
 	cmdName                        string
 	long                           string
 	defaults                       *options.ProviderDefaults
@@ -85,8 +85,8 @@ func (cb *CommandBuilder) SetCloudInitializer(cloudInitializer InitCloudFunc) {
 	cb.cloudInitializer = cloudInitializer
 }
 
-func (cb *CommandBuilder) SetStopChannel(stopCh <-chan struct{}) {
-	cb.stopCh = stopCh
+func (cb *CommandBuilder) SetContext(ctx context.Context) {
+	cb.ctx = ctx
 }
 
 func (cb *CommandBuilder) SetCmdName(name string) {
@@ -104,8 +104,8 @@ func (cb *CommandBuilder) SetProviderDefaults(defaults options.ProviderDefaults)
 }
 
 func (cb *CommandBuilder) setdefaults() {
-	if cb.stopCh == nil {
-		cb.stopCh = wait.NeverStop
+	if cb.ctx == nil {
+		cb.ctx = context.Background()
 	}
 
 	if cb.cmdName == "" {
@@ -150,7 +150,7 @@ func (cb *CommandBuilder) BuildCommand() *cobra.Command {
 			controllerInitializers := ConstructControllerInitializers(cb.controllerInitFuncConstructors, completedConfig, cloud)
 			webhooks := NewWebhookHandlers(cb.webhookConfigs, completedConfig, cloud)
 
-			if err := Run(completedConfig, cloud, controllerInitializers, webhooks, cb.stopCh); err != nil {
+			if err := Run(cmd.Context(), completedConfig, cloud, controllerInitializers, webhooks); err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				return err
 			}

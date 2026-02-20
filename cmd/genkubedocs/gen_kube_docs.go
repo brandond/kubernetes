@@ -52,26 +52,28 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx := server.SetupSignalContext()
+
 	switch module {
 	case "kube-apiserver":
 		// generate docs for kube-apiserver
-		apiserver := apiservapp.NewAPIServerCommand(server.SetupSignalHandler())
+		apiserver := apiservapp.NewAPIServerCommand(ctx)
 		doc.GenMarkdownTree(apiserver, outDir)
 	case "kube-controller-manager":
 		// generate docs for kube-controller-manager
-		controllermanager := cmapp.NewControllerManagerCommand()
+		controllermanager := cmapp.NewControllerManagerCommand(ctx)
 		doc.GenMarkdownTree(controllermanager, outDir)
 	case "kube-proxy":
 		// generate docs for kube-proxy
-		proxy := proxyapp.NewProxyCommand()
+		proxy := proxyapp.NewProxyCommand(ctx)
 		doc.GenMarkdownTree(proxy, outDir)
 	case "kube-scheduler":
 		// generate docs for kube-scheduler
-		scheduler := schapp.NewSchedulerCommand(server.SetupSignalHandler())
+		scheduler := schapp.NewSchedulerCommand(ctx)
 		doc.GenMarkdownTree(scheduler, outDir)
 	case "kubelet":
 		// generate docs for kubelet
-		kubelet := kubeletapp.NewKubeletCommand(server.SetupSignalContext())
+		kubelet := kubeletapp.NewKubeletCommand(ctx)
 		doc.GenMarkdownTree(kubelet, outDir)
 	case "kubeadm":
 		// resets global flags created by kubelet or other commands e.g.
