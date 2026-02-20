@@ -69,9 +69,8 @@ func init() {
 }
 
 // NewAPIServerCommand creates a *cobra.Command object with default parameters
-func NewAPIServerCommand(stopCh <-chan struct{}) *cobra.Command {
+func NewAPIServerCommand(ctx context.Context) *cobra.Command {
 	s := options.NewServerRunOptions()
-	ctx := genericapiserver.SetupSignalContext()
 	featureGate := s.GenericServerRunOptions.ComponentGlobalsRegistry.FeatureGateFor(basecompatibility.DefaultKubeComponent)
 
 	cmd := &cobra.Command{
@@ -103,7 +102,7 @@ cluster's shared state through which all other components interact.`,
 			cliflag.PrintFlags(fs)
 
 			// set default options
-			completedOptions, err := s.Complete(ctx)
+			completedOptions, err := s.Complete(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -116,7 +115,7 @@ cluster's shared state through which all other components interact.`,
 			featureGate.(featuregate.MutableFeatureGate).AddMetrics()
 			// add component version metrics
 			s.GenericServerRunOptions.ComponentGlobalsRegistry.AddMetrics()
-			return Run(cmd.Context(), completedOptions, stopCh)
+			return Run(cmd.Context(), completedOptions)
 		},
 		Args: func(cmd *cobra.Command, args []string) error {
 			for _, arg := range args {
@@ -128,6 +127,7 @@ cluster's shared state through which all other components interact.`,
 		},
 	}
 
+	cmd.SetContext(ctx)
 	fs := cmd.Flags()
 	namedFlagSets := s.Flags()
 	s.Flagz = flagz.NamedFlagSetsReader{
@@ -153,7 +153,7 @@ type startupConfig struct {
 var StartupConfig = make(chan startupConfig, 1)
 
 // Run runs the specified APIServer.  This should never exit.
-func Run(ctx context.Context, opts options.CompletedOptions, stopCh <-chan struct{}) error {
+func Run(ctx context.Context, opts options.CompletedOptions) error {
 	// To help debugging, immediately log version
 	klog.Infof("Version: %+v", utilversion.Get())
 

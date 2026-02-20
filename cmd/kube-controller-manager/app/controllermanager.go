@@ -98,7 +98,7 @@ const (
 )
 
 // NewControllerManagerCommand creates a *cobra.Command object with default parameters
-func NewControllerManagerCommand() *cobra.Command {
+func NewControllerManagerCommand(ctx context.Context) *cobra.Command {
 	s, err := options.NewKubeControllerManagerOptions()
 	if err != nil {
 		klog.Background().Error(err, "Unable to initialize command options")
@@ -133,8 +133,7 @@ controller, and serviceaccounts controller.`,
 			}
 			cliflag.PrintFlags(cmd.Flags())
 
-			ctx := context.Background()
-			c, err := s.Config(ctx, KnownControllers(), ControllersDisabledByDefault(), ControllerAliases())
+			c, err := s.Config(cmd.Context(), KnownControllers(), ControllersDisabledByDefault(), ControllerAliases())
 			if err != nil {
 				return err
 			}
@@ -144,7 +143,7 @@ controller, and serviceaccounts controller.`,
 			fg.(featuregate.MutableFeatureGate).AddMetrics()
 			// add component version metrics
 			s.ComponentGlobalsRegistry.AddMetrics()
-			return Run(ctx, c.Complete())
+			return Run(cmd.Context(), c.Complete())
 		},
 		Args: func(cmd *cobra.Command, args []string) error {
 			for _, arg := range args {

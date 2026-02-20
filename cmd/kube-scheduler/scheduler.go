@@ -28,7 +28,7 @@ import (
 )
 
 func main() {
-	command := app.NewSchedulerCommand(server.SetupSignalHandler())
+	command := app.NewSchedulerCommand(server.SetupSignalContext())
 	code := cli.Run(command)
 	os.Exit(code)
 }

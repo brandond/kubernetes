@@ -27,7 +27,7 @@ package main
 import (
 	"os"
 
-	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apiserver/pkg/server"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/cloud-provider/app"
 	cloudcontrollerconfig "k8s.io/cloud-provider/app/config"
@@ -44,6 +44,7 @@ import (
 )
 
 func main() {
+	ctx := server.SetupSignalContext()
 	ccmOptions, err := options.NewCloudControllerManagerOptions()
 	if err != nil {
 		klog.Fatalf("unable to initialize command options: %v", err)
@@ -74,7 +75,7 @@ func main() {
 	}
 	controllerAliases["nodeipam"] = kcmnames.NodeIpamController
 
-	command := app.NewCloudControllerManagerCommand(ccmOptions, cloudInitializer, controllerInitializers, controllerAliases, fss, wait.NeverStop)
+	command := app.NewCloudControllerManagerCommand(ctx, ccmOptions, cloudInitializer, controllerInitializers, controllerAliases, fss)
 	code := cli.Run(command)
 	os.Exit(code)
 }

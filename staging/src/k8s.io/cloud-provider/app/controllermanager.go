@@ -79,7 +79,7 @@ const (
 // NewCloudControllerManagerCommand creates a *cobra.Command object with default parameters
 // controllerInitFuncConstructors is a map of controller name(as defined by controllers flag in https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/#options) to their InitFuncConstructor.
 // additionalFlags provides controller specific flags to be included in the complete set of controller manager flags
-func NewCloudControllerManagerCommand(s *options.CloudControllerManagerOptions, cloudInitializer InitCloudFunc, controllerInitFuncConstructors map[string]ControllerInitFuncConstructor, controllerAliases map[string]string, additionalFlags cliflag.NamedFlagSets, stopCh <-chan struct{}) *cobra.Command {
+func NewCloudControllerManagerCommand(ctx context.Context, s *options.CloudControllerManagerOptions, cloudInitializer InitCloudFunc, controllerInitFuncConstructors map[string]ControllerInitFuncConstructor, controllerAliases map[string]string, additionalFlags cliflag.NamedFlagSets) *cobra.Command {
 	logOptions := logs.NewOptions()
 
 	cmd := &cobra.Command{
@@ -105,7 +105,7 @@ the cloud specific control loops shipped with Kubernetes.`,
 			cloud := cloudInitializer(completedConfig)
 			controllerInitializers := ConstructControllerInitializers(controllerInitFuncConstructors, completedConfig, cloud)
 
-			if err := Run(completedConfig, cloud, controllerInitializers, make(map[string]WebhookHandler), stopCh); err != nil {
+			if err := Run(cmd.Context(), completedConfig, cloud, controllerInitializers, make(map[string]WebhookHandler)); err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				return err
 			}
@@ -121,6 +121,7 @@ the cloud specific control loops shipped with Kubernetes.`,
 		},
 	}
 
+	cmd.SetContext(ctx)
 	fs := cmd.Flags()
 	namedFlagSets := s.Flags(ControllerNames(controllerInitFuncConstructors), ControllersDisabledByDefault.List(), controllerAliases, AllWebhooks, DisabledByDefaultWebhooks)
 
@@ -154,8 +155,7 @@ the cloud specific control loops shipped with Kubernetes.`,
 }
 
 // Run runs the ExternalCMServer.  This should never exit.
-func Run(c *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface, controllerInitializers map[string]InitFunc, webhooks map[string]WebhookHandler,
-	stopCh <-chan struct{}) error {
+func Run(ctx context.Context, c *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface, controllerInitializers map[string]InitFunc, webhooks map[string]WebhookHandler) error {
 	// To help debugging, immediately log version
 	klog.Infof("Version: %+v", version.Get())
 
@@ -183,7 +183,7 @@ func Run(c *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface
 		if len(webhooks) > 0 {
 			klog.Info("Webhook Handlers enabled: ", webhooks)
 			handler := newHandler(webhooks)
-			if _, _, err := c.WebhookSecureServing.Serve(handler, 0, stopCh); err != nil {
+			if _, _, err := c.WebhookSecureServing.Serve(handler, 0, ctx.Done()); err != nil {
 				return err
 			}
 		}
@@ -198,7 +198,7 @@ func Run(c *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface
 
 		handler := genericcontrollermanager.BuildHandlerChain(unsecuredMux, &c.Authorization, &c.Authentication)
 		// TODO: handle stoppedCh and listenerStoppedCh returned by c.SecureServing.Serve
-		if _, _, err := c.SecureServing.Serve(handler, 0, stopCh); err != nil {
+		if _, _, err := c.SecureServing.Serve(handler, 0, ctx.Done()); err != nil {
 			return err
 		}
 	}
@@ -211,15 +211,14 @@ func Run(c *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface
 		if err != nil {
 			klog.Fatalf("error building controller context: %v", err)
 		}
-		if err := startControllers(ctx, cloud, controllerContext, c, ctx.Done(), controllerInitializers, healthzHandler); err != nil {
+		if err := startControllers(ctx, cloud, controllerContext, c, controllerInitializers, healthzHandler); err != nil {
 			klog.Fatalf("error running controllers: %v", err)
 		}
 	}
 
 	if !c.ComponentConfig.Generic.LeaderElection.LeaderElect {
-		ctx := wait.ContextForChannel(stopCh)
 		run(ctx, controllerInitializers)
-		<-stopCh
+		<-ctx.Done()
 		return nil
 	}
 
@@ -288,14 +287,14 @@ func Run(c *cloudcontrollerconfig.CompletedConfig, cloud cloudprovider.Interface
 			})
 	}
 
-	<-stopCh
+	<-ctx.Done()
 	return nil
 }
 
 // startControllers starts the cloud specific controller loops.
-func startControllers(ctx context.Context, cloud cloudprovider.Interface, controllerContext genericcontrollermanager.ControllerContext, c *cloudcontrollerconfig.CompletedConfig, stopCh <-chan struct{}, controllers map[string]InitFunc, healthzHandler *controllerhealthz.MutableHealthzHandler) error {
+func startControllers(ctx context.Context, cloud cloudprovider.Interface, controllerContext genericcontrollermanager.ControllerContext, c *cloudcontrollerconfig.CompletedConfig, controllers map[string]InitFunc, healthzHandler *controllerhealthz.MutableHealthzHandler) error {
 	// Initialize the cloud provider with a reference to the clientBuilder
-	cloud.Initialize(c.ClientBuilder, stopCh)
+	cloud.Initialize(c.ClientBuilder, ctx.Done())
 	// Set the informer on the user cloud object
 	if informerUserCloud, ok := cloud.(cloudprovider.InformerUser); ok {
 		informerUserCloud.SetInformers(c.SharedInformers)
@@ -339,10 +338,10 @@ func startControllers(ctx context.Context, cloud cloudprovider.Interface, contro
 		klog.Fatalf("Failed to wait for apiserver being healthy: %v", err)
 	}
 
-	c.SharedInformers.Start(stopCh)
+	c.SharedInformers.Start(ctx.Done())
 	controllerContext.InformerFactory.Start(controllerContext.Stop)
 
-	<-stopCh
+	<-ctx.Done()
 	return nil
 }
 
