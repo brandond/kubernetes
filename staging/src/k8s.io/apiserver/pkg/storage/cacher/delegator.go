@@ -48,7 +48,7 @@ var (
 	// ConsistencyCheckPeriod is the period of checking consistency between etcd and cache.
 	// 5 minutes were proposed to match the default compaction period. It's magnitute higher than
 	// List latency SLO (30 seconds) and timeout (1 minute).
-	ConsistencyCheckPeriod = 5 * time.Minute
+	ConsistencyCheckPeriod = time.Minute
 	// panicOnCacheInconsistency enables the consistency checking mechanism for cache.
 	// Based on KUBE_WATCHCACHE_CONSISTENCY_CHECKER environment variable.
 	panicOnCacheInconsistency = false
@@ -320,7 +320,7 @@ type getLister interface {
 }
 
 func (c consistencyChecker) startChecking(stopCh <-chan struct{}) {
-	klog.V(3).InfoS("Cache consistency check start", "group", c.groupResource.Group, "resource", c.groupResource.Resource)
+	klog.InfoS("Cache consistency check start", "group", c.groupResource.Group, "resource", c.groupResource.Resource)
 	jitter := 0.5 // Period between [interval, interval * (1.0 + jitter)]
 	sliding := true
 	// wait.JitterUntilWithContext starts work immediately, so wait first.
@@ -339,7 +339,7 @@ func (c *consistencyChecker) check(ctx context.Context) {
 		return
 	}
 	if digests.CacheDigest == digests.EtcdDigest {
-		klog.V(3).InfoS("Cache consistency check passed", "group", c.groupResource.Group, "resource", c.groupResource.Resource, "resourceVersion", digests.ResourceVersion, "digest", digests.CacheDigest)
+		klog.InfoS("Cache consistency check passed", "group", c.groupResource.Group, "resource", c.groupResource.Resource, "resourceVersion", digests.ResourceVersion, "digest", digests.CacheDigest)
 		metrics.StorageConsistencyCheckTotal.WithLabelValues(c.groupResource.Group, c.groupResource.Resource, "success").Inc()
 		c.cacher.MarkConsistent(true)
 		return

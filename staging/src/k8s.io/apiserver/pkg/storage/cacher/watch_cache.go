@@ -480,6 +480,7 @@ func (w *watchCache) waitUntilFreshAndBlock(ctx context.Context, resourceVersion
 	for w.resourceVersion < resourceVersion {
 		if w.clock.Since(startTime) >= blockTimeout {
 			// Request that the client retry after 'resourceVersionTooHighRetrySeconds' seconds.
+			klog.InfoS("Stale watch cache detected", "group", w.groupResource.Group, "resource", w.groupResource.Resource, "resourceVersion", w.resourceVersion, "requestVersion", resourceVersion)
 			return storage.NewTooLargeResourceVersionError(resourceVersion, w.resourceVersion, resourceVersionTooHighRetrySeconds)
 		}
 		w.cond.Wait()
